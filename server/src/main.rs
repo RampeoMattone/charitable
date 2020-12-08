@@ -1,13 +1,14 @@
 use sqlx::{mysql::MySqlPoolOptions};
 use warp::{Filter};
-use std::{convert::Infallible};
+use std::{collections::HashMap};
 
+mod database;
 
 #[tokio::main]
 async fn main() {
     // get a database url.
     // TODO - IMPLEMENT ENVIRONMENT VARIABLES
-    let database_url = String::from("mysql://anoni:anoni@192.168.1.4:3306/anoni");
+    let database_url = String::from("mysql://user:@pi:3306/charitable");
     // generate a connection pool for the database
     let pool = MySqlPoolOptions::new()
         .max_connections(5)
@@ -15,17 +16,31 @@ async fn main() {
         .expect("Failed to connect to the database");
     // prepare the service:
     // POST /reg/<code> => 200 OK, body "here is the code! <code>"
-    let service = warp::
-        post() // listen only for POST requests
-        .and(warp::path!("reg" / String)) // make sure the user is accessing /reg/<capture>
-        .and_then(move |path| { // make a service that runs on an async function
+    let service = warp::post() // listen only for POST requests
+        .and(warp::path!("reg")) // make sure the user is accessing /reg/<capture>
+        .and(warp::body::content_length_limit(4096)) // make sure the body is not too big
+        .and(warp::body::json())
+        .and_then(move |body: HashMap<String, String>| { // make a service that runs on an async function
                 // the pool is captured by the closure
                 let pool = pool.clone(); // the pool is cloned and passed with ownership to the async
                 async move {
-                    //println!("ciao {}", path);
-                    //println!("{:?}", sqlx::query("SHOW TABLES").execute(&pool).await.unwrap());
-                    // TODO - add database actions
-                    Ok::<String, Infallible>(format!("done!")) // async block returns a response for the client
+                    match (body.get("user"), body.get("code")) { // using a match statement to make sure we get all the required JSON parameters
+                        (Some(user), Some(code)) => { // if all the correct parameters are present we extract them and generate a proper response
+                            let result: (String, String) = sqlx::query_as(
+                                "SELECT codes.code, users.code \
+                                    FROM codes, users \
+                                    WHERE codes.used_by=users.id"
+                            ).fetch_one(&pool).await.unwrap();
+                            let response = format!("ciao {}, {}. \
+                            Il codice da te richiesto è {} ed è registrato a {}",
+                                                   user,
+                                                   code,
+                                                   result.0,
+                                                   result.1);
+                            Ok(response)
+                        }// async block returns a response for the client
+                        _ => Err(warp::reject::not_found()) // if any of the two parameters are absent then we send a not found code and close it off like that
+                    }
                 } // async block is returned as a future
             });
 
