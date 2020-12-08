@@ -1,72 +1,28 @@
-use std::{
-    net::SocketAddr,
-    convert::Infallible
-};
-use hyper::{Body,
-            Request,
-            Response,
-            Server,
-            Method,
-            StatusCode,
-            service::{make_service_fn,
-                      service_fn
-            }
-};
+use sqlx::{mysql::MySqlPoolOptions};
+use warp::{Filter};
+use std::{convert::Infallible};
 
-mod database;
-mod test;
-
-use crate::database::{Database};
 
 #[tokio::main]
-pub async fn main() {
-    test::start()
-    /*
-    // We'll bind to 127.0.0.1:3000
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    // A `Service` is needed for every connection, so this
-    // creates one from our `hello_world` function.
-    let make_svc = make_service_fn(|_conn| {
-        async move {
-            let _test = String::from("ciao");
-            // service_fn converts our function into a `Service`
-            Ok::<_, Infallible>(service_fn(make_svc))
-        }
-    });
+async fn main() {
+    let database_url = String::from("mysql://anoni:anoni@192.168.1.4:3306/anoni");
+    let _pool = MySqlPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url).await
+        .expect("Failure to connect to the database");
+    let pool = _pool.clone();
+    // POST /reg/<code> => 200 OK, body "here is the code! <code>"
+    let code = warp::post().and(warp::path!("reg" / String))
+        .and_then(move |path| {
+                let pool_clone = pool.clone();
+                async move {
+                    println!("ciao!!!! {}", path);
+                    sqlx::query("SHOW TABLES").execute(&pool_clone).await.unwrap();
+                    Ok::<String, Infallible>(format!("done!"))
+                }
+            });
 
-    let server = Server::bind(&addr).serve(make_svc);
-
-    // Run this server for... forever!
-    if let Err(e) = server.await {
-        eprintln!("server error: {}", e);
-    }
-
-     */
-}
-
-async fn make_svc(req: Request<Body>) -> Result<Response<Body>, Infallible> {
-    let mut response = Response::new(Body::empty());
-    match (req.method(), req.uri().path()) {
-        (&Method::POST, "/register") => {
-            // Collects the whole body of the POST and generates a lossy converted utf8 string
-            let _body_text = hyper::body::to_bytes(req.into_body())
-                .await
-                .expect("body collection went wrong")
-                .iter()
-                .cloned()
-                .collect::<Vec<u8>>();
-            let body_text = String::from_utf8_lossy(&_body_text);
-            // generates a string which matches the encoded bytes of the received body
-            //TODO: add database integration
-            //let mut database = Database::connect("mysql://charitable:charitable@192.168.1.4:3001/charitable");
-            println!("{}", body_text);
-            //confirm that everything went well
-            *response.status_mut() = StatusCode::OK;
-        },
-        _ => {
-            *response.status_mut() = StatusCode::NOT_FOUND;
-        },
-    };
-
-    Ok::<_, Infallible>(response)
+    warp::serve(code)
+        .run(([127, 0, 0, 1], 3030))
+        .await;
 }
