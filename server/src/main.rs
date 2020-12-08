@@ -21,28 +21,26 @@ async fn main() {
         .and(warp::body::content_length_limit(4096)) // make sure the body is not too big
         .and(warp::body::json())
         .and_then(move |body: HashMap<String, String>| { // make a service that runs on an async function
-                // the pool is captured by the closure
-                let pool = pool.clone(); // the pool is cloned and passed with ownership to the async
-                async move {
-                    match (body.get("user"), body.get("code")) { // using a match statement to make sure we get all the required JSON parameters
-                        (Some(user), Some(code)) => { // if all the correct parameters are present we extract them and generate a proper response
-                            let result: (String, String) = sqlx::query_as(
-                                "SELECT codes.code, users.code \
-                                    FROM codes, users \
-                                    WHERE codes.used_by=users.id"
-                            ).fetch_one(&pool).await.unwrap();
-                            let response = format!("ciao {}, {}. \
-                            Il codice da te richiesto è {} ed è registrato a {}",
-                                                   user,
-                                                   code,
-                                                   result.0,
-                                                   result.1);
-                            Ok(response)
-                        }// async block returns a response for the client
-                        _ => Err(warp::reject::not_found()) // if any of the two parameters are absent then we send a not found code and close it off like that
-                    }
-                } // async block is returned as a future
-            });
+            // the pool is captured by the closure
+            let pool = pool.clone(); // the pool is cloned and passed with ownership to the async
+            async move {
+                match (body.get("user"), body.get("code")) { // using a match statement to make sure we get all the required JSON parameters
+                    (Some(user), Some(code)) => { // if all the correct parameters are present we extract them and generate a proper response
+                        let result = sqlx::query!("call verify(?, ?)", code, user)
+                            .fetch_one(&pool).await.unwrap();
+                        if let Ok(true) = sqlx::Row::try_get(&result, 0) {
+
+                            Ok(format!("hai chiesto di registrare {} sotto {}.\n\
+                                        Il codice da te richiesto è libero?: sì\n",
+                                       code, user))
+                        } else {
+                            Err(warp::reject::not_found())
+                        }
+                    }// async block returns a response for the client
+                    _ => Err(warp::reject::not_found()) // if any of the two parameters are absent then we send a not found code and close it off like that
+                }
+            } // async block is returned as a future
+        });
 
     warp::serve(service)
         .run(([127, 0, 0, 1], 3030))
