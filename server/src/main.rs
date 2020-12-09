@@ -26,15 +26,12 @@ async fn main() {
             async move {
                 match (body.get("user"), body.get("code")) { // using a match statement to make sure we get all the required JSON parameters
                     (Some(user), Some(code)) => { // if all the correct parameters are present we extract them and generate a proper response
-                        let result = sqlx::query!("call verify(?, ?)", code, user)
-                            .fetch_one(&pool).await.unwrap();
+                        let result = sqlx::query!("call register(?, ?)", code, user) // use an ad-hoc procedure to register the code to a user
+                            .fetch_one(&pool).await.unwrap(); // if the code cannot be registered, the procedure will return false, else it will return true
                         if let Ok(true) = sqlx::Row::try_get(&result, 0) {
-
-                            Ok(format!("hai chiesto di registrare {} sotto {}.\n\
-                                        Il codice da te richiesto è libero?: sì\n",
-                                       code, user))
+                            Ok(format!("CODE '{}' WAS SUCCESSFULLY REGISTERED UNDER USER '{}'.\n", code, user))
                         } else {
-                            Err(warp::reject::not_found())
+                            Err(warp::reject::reject())
                         }
                     }// async block returns a response for the client
                     _ => Err(warp::reject::not_found()) // if any of the two parameters are absent then we send a not found code and close it off like that
