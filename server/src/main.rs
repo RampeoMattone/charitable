@@ -1,8 +1,9 @@
-use sqlx::{mysql::MySqlPoolOptions};
-use warp::{Filter};
+use sqlx::{mysql::{MySqlPoolOptions}};
+use warp::{Filter, http::StatusCode};
 use std::{collections::HashMap};
 
 mod database;
+use crate::database::Output;
 
 #[tokio::main]
 async fn main() {
@@ -26,15 +27,30 @@ async fn main() {
             async move {
                 match (body.get("user"), body.get("code")) { // using a match statement to make sure we get all the required JSON parameters
                     (Some(user), Some(code)) => { // if all the correct parameters are present we extract them and generate a proper response
-                        let result = sqlx::query!("call register(?, ?)", code, user) // use an ad-hoc procedure to register the code to a user
+                        let result: Output = sqlx::query_as(
+                        //let result = sqlx::query(
+                        "call charitable.register( ? , ? )")
+                            .bind(code)
+                            .bind(user) // use an ad-hoc procedure to register the code to a user
                             .fetch_one(&pool).await.unwrap(); // if the code cannot be registered, the procedure will return false, else it will return true
-                        if let Ok(true) = sqlx::Row::try_get(&result, 0) {
-                            Ok(format!("CODE '{}' WAS SUCCESSFULLY REGISTERED UNDER USER '{}'.\n", code, user))
+                        /*
+                        println!("{:?}", sqlx::Row::columns(&result));
+                        println!("{:?}", Output{
+                            success: false,
+                            code: "2".to_string(),
+                            user: "1".to_string()
+                        });
+                         */
+                        //let json = serde_json::to_string(&result).unwrap();
+                        if result.0 { // the first column of the result will always say whether or not we had a successful operation on the data
+                            //warp::reply::with_status(json, warp::http::StatusCode::OK)
+                            Ok(warp::reply::with_status(warp::reply::json(&result), StatusCode::OK))
                         } else {
-                            Err(warp::reject::reject())
+                            //warp::reply::with_status("database said no".to_string(), warp::http::StatusCode::NOT_ACCEPTABLE)
+                            Ok(warp::reply::with_status(warp::reply::json(&result), StatusCode::CONFLICT))
                         }
                     }// async block returns a response for the client
-                    _ => Err(warp::reject::not_found()) // if any of the two parameters are absent then we send a not found code and close it off like that
+                    _ => Err(warp::reject::not_found()) //warp::reply::with_status("fuck_off".to_string(), warp::http::StatusCode::NOT_FOUND) // if any of the two parameters are absent then we send a not found code and close it off like that
                 }
             } // async block is returned as a future
         });
