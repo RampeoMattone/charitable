@@ -1,9 +1,8 @@
-use sqlx::{mysql::{MySqlPoolOptions}};
-use warp::{Filter, http::StatusCode};
+use sqlx::{postgres::{PgPoolOptions}};
+use warp::{Filter};
 use std::{env, collections::HashMap};
 
 mod database;
-use crate::database::Output;
 
 #[tokio::main]
 async fn main() {
@@ -11,7 +10,7 @@ async fn main() {
     match env::var("DATABASE_URL") {
         Ok(database_url) => {
             // generate a connection pool for the database
-            let pool = MySqlPoolOptions::new()
+            let pool = PgPoolOptions::new()
                 .max_connections(5)
                 .connect(&database_url).await
                 .expect("Failed to connect to the database");
@@ -25,11 +24,13 @@ async fn main() {
                     // the pool is captured by the closure
                     let pool = pool.clone(); // the pool is cloned and passed with ownership to the async
                     async move {
-                        match Output::new(body, &pool).await { // using an ad hoc method to query the database and export the result idiomatically
+                        match database::query(body, &pool).await { // using an ad hoc method to query the database and export the result idiomatically
                             Ok(result) => // if the database call succeeded (if we received a row of values that we could convert from the query)
-                                    Ok(warp::reply::with_status(warp::reply::json(&result), StatusCode::OK)), // reply to the client with a json-formatted response that matches what we extracted from the database
+                                    Ok(warp::reply::json(&result)), // reply to the client with a json-formatted response that matches what we extracted from the database
                             Err(e) => { // if the database call failed (either because of an improper query or because the parameter from the request body were missing)
-                                eprintln!("{:?}", e); // print the error we get to the error buffer
+                                if cfg!(debug_assertions) { // ONLY WORKS WHILE IN DEBUG BUILDS
+                                    eprintln!("{:?}", e); // print the error we get to the error buffer
+                                }
                                 Err(warp::reject::not_found()) // reply to the client with an empty 404
                             }
                         }
